@@ -14,6 +14,7 @@
 export PATH := /usr/local/bin:$(PATH)
 export GOPATH := $(shell /bin/go env GOPATH)
 export EC2_HOSTNAME := $(shell curl http://169.254.169.254/latest/meta-data/public-hostname)
+export EC2_PUBLIC_IP := $(shell curl http://169.254.169.254/latest/meta-data/public-ipv4)
 UNAME_KERNEL = $(shell uname -s)
 UNAME_MACHINE = $(shell uname -m)
 
@@ -87,21 +88,31 @@ contrib/openshift/grafana/dashboards/dashboard-clair.configmap.yaml: local-dev/g
 unit:
 	/bin/go test -race ./...
 
-.PHONY: install-centos8
-install-centos8:
+.PHONY: quay-config
+quay-config:
 	curl -L "https://github.com/docker/compose/releases/download/1.28.6/docker-compose-$(UNAME_KERNEL)-$(UNAME_MACHINE)" -o /usr/local/bin/docker-compose
 	chmod +x /usr/local/bin/docker-compose
 	sed -i "s/{{ec2_instance_hostname}}/${EC2_HOSTNAME}/" local-dev/quay/config.yaml
-	systemctl start docker
-	systemctl enable docker
-
-.PHONY: quay
-quay: local-dev/clair/quay.yaml vendor
+	sed -i "s/{{ec2_instance_hostname}}/${EC2_HOSTNAME}/" local-dev/docker/daemon.json
+	sed -i "s/{{ec2_instance_hostname}}/${EC2_HOSTNAME}/" docker-compose.yaml
 	rm -f /etc/systemd/system/quay.service
 	cp local-dev/quay.service /etc/systemd/system/quay.service
+	rm -f /etc/docker/daemon.json
+	cp local-dev/docker/daemon.json /etc/docker/daemon.json
+
+.PHONY: quay-server
+quay-server: local-dev/clair/quay.yaml vendor
 	systemctl daemon-reload
-	systemctl start quay
+	systemctl enable docker
+	systemctl restart docker
+	systemctl restart quay
 	systemctl enable quay
 	@printf 'postgresql on port:\t%s\n' "$$($(docker-compose) port traefik 5432)"
 	@printf 'quay on port:\t%s\n' "$$($(docker-compose) port traefik 8443)"
 
+.PHONY: quay-nodejs-image
+quay-nodejs-image:
+	docker login -u="unicorn-games" -p="fishygame" ${EC2_HOSTNAME}
+	docker pull node:14.21.2-alpine3.17
+	docker tag node:14.21.2-alpine3.17 ${EC2_HOSTNAME}/unicorn-games/base-nodejs:14.21.2-alpine3.17
+	docker push ${EC2_HOSTNAME}/unicorn-games/base-nodejs:14.21.2-alpine3.17
