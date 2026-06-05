@@ -1,4 +1,4 @@
-FROM node:14.21 AS app
+FROM node:latest AS app
 
 # Install Google Chrome Stable and fonts
 # Note: this installs the necessary libs to make the browser work with Puppeteer.
